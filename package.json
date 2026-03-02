@@ -1,0 +1,27 @@
+{
+  "name": "reshape",
+  "version": "1.0.0",
+  "description": "Wizardry for keeping data typesafe from definition to consumption",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
