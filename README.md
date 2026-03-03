@@ -14,15 +14,7 @@ Your database schema, API response type, or any other canonical data structure s
 ## Installation
 
 ```bash
-npm install @ethangunter/reshape
-```
-
-```bash
-pnpm add @ethangunter/reshape
-```
-
-```bash
-yarn add @ethangunter/reshape
+[p]npm/yarn install/add @ethangunter/reshape
 ```
 
 > **Requirements:** TypeScript 5.0+, ESM project (`"type": "module"` or a bundler that handles ESM).
