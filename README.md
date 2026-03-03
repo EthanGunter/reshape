@@ -69,8 +69,6 @@ Change a field in `User` and every derived type and consumer updates with it.
 
 ## API Reference
 
-All methods return a new builder. The original object is never mutated. Call `.done()` to get the final typed object.
-
 
 | Method             | Description                                                              |
 | ------------------ | ------------------------------------------------------------------------ |
