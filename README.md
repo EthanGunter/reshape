@@ -2,7 +2,6 @@
 
 [npm version](https://www.npmjs.com/package/@ethangunter/reshape)
 [license](./LICENSE)
-[TypeScript]()
 
 A tiny, zero-dependency TypeScript utility for building type-safe object derivations from a single source of truth.
 
