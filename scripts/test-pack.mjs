@@ -65,9 +65,11 @@ const nested = reshape().omit("_internal").build();
 assert.deepEqual(reshape().at("addr", nested).build()({ addr: { city: "X", _internal: 9 } }), { addr: { city: "X" } });
 `);
 
-	// Only the tarball is installed; `tsc` comes from this repo, so CI does not
-	// need a second network fetch to typecheck the consumer.
-	run("npm", ["install", "--silent", "--no-audit", "--no-fund", tarball], dir);
+	// Only the tarball is installed, and `tsc` comes from this repo, so nothing
+	// here touches the registry. `--offline` keeps it that way: this runs on
+	// every `npm test`, and a packaging check that fails when the network
+	// hiccups would get ignored, which is worse than not having one.
+	run("npm", ["install", "--silent", "--no-audit", "--no-fund", "--offline", tarball], dir);
 
 	// Declaration emit under both resolution modes a consumer is likely to use.
 	for (const [label, opts] of [
