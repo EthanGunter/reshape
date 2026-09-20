@@ -68,7 +68,16 @@ neither is obviously worth it — see the note on `build()` below.
 
 **`build()` compiles nothing.** Reusing a built mapper beats calling `.build()`
 per call by 1.07x — all the op dispatch happens per call, so there is real
-headroom in doing the work once at build time.
+headroom in doing the work once at build time. It is a finalizer in the
+builder-pattern sense, not a compiler: the plan is already reified as data by
+`explain`, and nothing consumes it for execution.
+
+`invert` used to have the same problem, and worse: it recomputed
+`transformedKeys(ops)` — a walk of the whole pipeline, allocating Sets, with a
+nested `includes` — inside the returned closure, on every call. Settling it
+once when `invert` is called took the inverse from 1.20µs to 972ns, and from
+992ns to 422ns on a 16-op pipeline. The inverse is now flatter with depth than
+the forward mapper, since the forward path still re-walks its ops per call.
 
 **`at`/`each` cost ~36x any other operator at the type level**, ~9,200
 instantiations against 263 for `pick`. The signature takes

@@ -391,52 +391,60 @@ const create = <In, Out, Src extends Provenance, NeedsFn extends PropertyKey>(
 
 		explain: () => [...stepsOf()],
 
-		invert: (recipe: Record<string, (value: any) => unknown> = {}) => (input: any) => {
-			let current: Record<string, any> = { ...input };
-
+		invert: (recipe: Record<string, (value: any) => unknown> = {}) => {
 			// Which recipe entries are value-inverses (keyed by OUTPUT name) versus
 			// reconstructors for dropped fields (keyed by SOURCE name). Presence in
 			// the input cannot tell these apart -- a transformed key is simply absent
 			// from a patch -- so classify them from the pipeline itself.
+			//
+			// Both the pipeline and the recipe are fixed the moment `invert` is
+			// called, so this is settled once here rather than on every call.
 			const transformed = transformedKeys(ops);
+			const keys = Object.keys(recipe);
+			const valueInverses = keys.filter((key) => transformed.has(key));
+			const reconstructors = keys.filter((key) => !transformed.has(key));
 
-			for (const key of Object.keys(recipe)) {
-				if (transformed.has(key) && key in current) current[key] = recipe[key]!(current[key]);
-			}
+			return (input: any) => {
+				let current: Record<string, any> = { ...input };
 
-			for (let i = ops.length - 1; i >= 0; i--) {
-				const op = ops[i]!;
-				switch (op.op) {
-					case "rename": {
-						const staged: Record<string, any> = {};
-						for (const from of Object.keys(op.mapping)) {
-							const to = op.mapping[from]!;
-							if (!(to in current)) continue;
-							staged[from] = current[to];
-							delete current[to];
-						}
-						Object.assign(current, staged);
-						break;
-					}
-					case "extend":
-						// Added fields have no source to map back to, so they are dropped.
-						for (const key of Object.keys(op.fields)) delete current[key];
-						break;
-					default:
-						break; // pick/omit are answered by reconstructors; retype/at/each by the recipe
+				for (const key of valueInverses) {
+					if (key in current) current[key] = recipe[key]!(current[key]);
 				}
-			}
 
-			// Reconstruct dropped fields last, once keys carry their source names.
-			// A reconstructor returning undefined contributes nothing, so a patch
-			// never gains a key that would unset a column downstream.
-			for (const key of Object.keys(recipe)) {
-				if (transformed.has(key) || key in current) continue;
-				const value = (recipe[key] as (o: any) => unknown)(input);
-				if (value !== undefined) current[key] = value;
-			}
+				for (let i = ops.length - 1; i >= 0; i--) {
+					const op = ops[i]!;
+					switch (op.op) {
+						case "rename": {
+							const staged: Record<string, any> = {};
+							for (const from of Object.keys(op.mapping)) {
+								const to = op.mapping[from]!;
+								if (!(to in current)) continue;
+								staged[from] = current[to];
+								delete current[to];
+							}
+							Object.assign(current, staged);
+							break;
+						}
+						case "extend":
+							// Added fields have no source to map back to, so they are dropped.
+							for (const key of Object.keys(op.fields)) delete current[key];
+							break;
+						default:
+							break; // pick/omit are answered by reconstructors; retype/at/each by the recipe
+					}
+				}
 
-			return current;
+				// Reconstruct dropped fields last, once keys carry their source names.
+				// A reconstructor returning undefined contributes nothing, so a patch
+				// never gains a key that would unset a column downstream.
+				for (const key of reconstructors) {
+					if (key in current) continue;
+					const value = (recipe[key] as (o: any) => unknown)(input);
+					if (value !== undefined) current[key] = value;
+				}
+
+				return current;
+			};
 		},
 	};
 
