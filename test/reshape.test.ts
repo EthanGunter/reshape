@@ -110,6 +110,56 @@ test("each reshapes every element of an array", () => {
 	assert.deepEqual(out, { posts: [{ id: "1", title: "A" }, { id: "2", title: "B" }] });
 });
 
+test("at and each accept a mapper that was already built, not just an unbuilt reshaper", () => {
+	// Regression: a built mapper and a callback are both functions, so `at`
+	// used to mistake the former for the latter, call it with an empty
+	// reshaper, and apply nothing -- silently passing the dropped field
+	// through. In a library whose job is stripping fields at a boundary, that
+	// is the failure that matters most.
+	type Addr = { street: string; city: string; zip: string; _internal: number };
+	const source = { id: "r1", addr: { street: "1 Main", city: "X", zip: "99", _internal: 7 } };
+	const clean = { street: "1 Main", city: "X", zip: "99" };
+
+	const built = reshape<Addr>().omit("_internal").build();
+	assert.deepEqual(
+		reshape<{ id: string; addr: Addr }>().at("addr", built).build()(source),
+		{ id: "r1", addr: clean },
+	);
+	assert.deepEqual(
+		reshape<{ items: Addr[] }>().each("items", built).build()({ items: [source.addr] }),
+		{ items: [clean] },
+	);
+
+	// All four ways of naming a nested mapper must agree.
+	const unbuilt = reshape<Addr>().omit("_internal");
+	const ways = [
+		reshape<{ addr: Addr }>().at("addr", (r) => r.omit("_internal")).build(),
+		reshape<{ addr: Addr }>().at("addr", (r) => r.omit("_internal").build()).build(),
+		reshape<{ addr: Addr }>().at("addr", unbuilt).build(),
+		reshape<{ addr: Addr }>().at("addr", built).build(),
+	];
+	for (const way of ways) assert.deepEqual(way({ addr: source.addr }), { addr: clean });
+});
+
+test("explain sees through a sub-mapper that was reused rather than defined inline", () => {
+	// Reuse must not cost you the introspection that `explain` exists for.
+	const built = reshape<{ zip: string; _internal: number }>()
+		.omit("_internal")
+		.rename({ zip: "postalCode" })
+		.build();
+
+	assert.deepEqual(reshape<{ addr: { zip: string; _internal: number } }>().at("addr", built).explain(), [
+		{
+			op: "at",
+			key: "addr",
+			steps: [
+				{ op: "omit", keys: ["_internal"] },
+				{ op: "rename", mapping: { zip: "postalCode" } },
+			],
+		},
+	]);
+});
+
 /* -------------------------------- misc --------------------------------- */
 
 test("run applies the pipeline once, and the function is reusable across a list", () => {

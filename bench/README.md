@@ -47,10 +47,24 @@ stays slow for the rest of the pipeline:
 | copy, delete 1, copy again | 962ns |
 | construct without the key | 2.7ns |
 
-That is the whole story behind `rename` costing 375ns against `pick`'s 128ns,
-and behind a realistic four-step mapper running ~14x a hand-written transform.
-It is also the argument for `.strict()` on the roadmap: building the result
-from a manifest is the same trade as the last row of that table.
+That is the whole story behind `rename` costing 375ns against `pick`'s 128ns.
+
+**But it is not where the gap to hand-written lives.** Measured against a real
+patched build, removing `delete` entirely is worth 1.57x — the remaining cost
+is five object allocations with dynamic key stores, where a hand-written
+transform does one literal with a fixed hidden class. Per 1000 rows:
+
+| | | |
+| --- | --- | --- |
+| hand-written | 66µs | 1.0x |
+| fused, codegen (`new Function`) | 70µs | 1.06x |
+| fused, plan loop (no eval) | 162µs | 2.4x |
+| `delete` removed, still per-op | 433µs | 6.6x |
+| current | 678µs | 10.3x |
+
+Fusing the ops into one pass at build time is worth ~4x more than the `delete`
+fix, and codegen lands within 6% of hand-written. Neither is implemented, and
+neither is obviously worth it — see the note on `build()` below.
 
 **`build()` compiles nothing.** Reusing a built mapper beats calling `.build()`
 per call by 1.07x — all the op dispatch happens per call, so there is real
@@ -65,6 +79,29 @@ But it is a **one-time** cost, which is the reassuring part: a second `at` adds
 ~200 instantiations, and a *nested* one ~485. Ten sibling `at` calls in a file
 cost 11,048 against 9,212 for one. Reach for `at` freely once you have reached
 for it at all.
+
+**Consumers pay almost nothing.** Declaration emit is fully flattened —
+`Simplify` collapses the pipeline types at the `.d.ts` boundary, so a
+downstream package never sees `Reshaper`, `DistributiveOmit` or a conditional
+type:
+
+| mappers exported | `.d.ts` | per mapper | consumer instantiations |
+| --- | --- | --- | --- |
+| 1 | 670 B | 670 B | 30 |
+| 10 | 6,700 B | 670 B | 273 |
+| 50 | 33,700 B | 674 B | 1,353 |
+
+Dead linear. The ~9,200 instantiations that `at` costs are paid once by the
+mapper's author and never by anyone downstream. (Branding `build()`'s return
+type as `Built` for the `at` fix costs ~12% of that `.d.ts` size and roughly
+doubles the consumer count, from 598 B / 703 instantiations at 50 mappers.
+Both are small enough to be worth closing a silent field leak.)
+
+**Cost amortizes across files, not just within one.** Fifty separate files
+each defining a pipeline cost 17,412 instantiations — 348 per file, down from
+535 for a single file. Fifty files each using `at` cost 93,682 total, roughly
+1,167 marginal per file after the first pays the entry cost. Spreading mappers
+across a codebase is the cheap direction.
 
 **Everything else scales fine.** Source width is mild (253 → 728 instantiations
 from 5 to 100 keys). Union sources stay linear (~278 per member), which matters

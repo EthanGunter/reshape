@@ -68,6 +68,17 @@ export type Step =
 	| { op: "each"; key: string; steps: Step[] };
 
 const BRAND: unique symbol = Symbol.for("@ethangunter/reshape");
+const BUILT: unique symbol = Symbol.for("@ethangunter/reshape.built");
+
+/**
+ * What {@link Reshaper.build} returns: an ordinary function, plus a brand.
+ *
+ * The brand exists because {@link Reshaper.at} has to tell two functions
+ * apart -- a mapper you built earlier, and a callback that wants to be handed
+ * a reshaper. Nothing structural separates them, so without the brand a
+ * reused mapper is mistaken for a callback and silently does nothing.
+ */
+export type Built<In, Out> = ((source: In) => Out) & { readonly [BUILT]: true };
 
 /**
  * A pipeline under construction. Every method returns a new reshaper, so
@@ -148,15 +159,23 @@ export type Reshaper<
 	 * can be reused wherever that shape appears, or a callback receiving a
 	 * reshaper for the nested type.
 	 */
+	at<K extends keyof Out, R extends Nested<Out[K]>>(
+		key: K,
+		reshaper: R
+	): Reshaper<In, Simplify<DistributiveOmit<Out, K> & Record<K, OutputOf<R>>>, Src, NeedsFn | K>;
 	at<K extends keyof Out, R>(
 		key: K,
-		reshaper: R | ((nested: Reshaper<Out[K]>) => R)
+		define: (nested: Reshaper<Out[K]>) => R
 	): Reshaper<In, Simplify<DistributiveOmit<Out, K> & Record<K, OutputOf<R>>>, Src, NeedsFn | K>;
 
 	/** Reshape every element of a nested array, the way {@link Reshaper.at} reshapes a nested object. */
+	each<K extends KeysOfArrays<Out>, R extends Nested<ElementOf<Out[K]>>>(
+		key: K,
+		reshaper: R
+	): Reshaper<In, Simplify<DistributiveOmit<Out, K> & Record<K, OutputOf<R>[]>>, Src, NeedsFn | K>;
 	each<K extends KeysOfArrays<Out>, R>(
 		key: K,
-		reshaper: R | ((element: Reshaper<ElementOf<Out[K]>>) => R)
+		define: (element: Reshaper<ElementOf<Out[K]>>) => R
 	): Reshaper<In, Simplify<DistributiveOmit<Out, K> & Record<K, OutputOf<R>[]>>, Src, NeedsFn | K>;
 
 	/**
@@ -167,7 +186,7 @@ export type Reshaper<
 	 * by hand: `type PublicUser = ReturnType<typeof toPublicUser>`. Being an
 	 * ordinary function, it also drops straight into `.map()`.
 	 */
-	build(): (source: In) => Simplify<Out>;
+	build(): Built<In, Simplify<Out>>;
 
 	/** Apply the pipeline once, for when the function is not worth naming. */
 	run(source: In): Simplify<Out>;
@@ -202,6 +221,13 @@ export type Reshaper<
 	explain(): Step[];
 };
 
+/**
+ * Something already defined that reshapes `T`: a reshaper you have not built
+ * yet, or a mapper you have. The branded {@link Built} is what keeps this
+ * distinguishable from the callback overload, since both are functions.
+ */
+type Nested<T> = Reshaper<T, any, any, any> | Built<T, any>;
+
 type OutputOf<R> = R extends Reshaper<any, infer O, any, any> ? O : R extends (input: any) => infer O ? O : never;
 type KeysOfArrays<T> = { [K in keyof T]: T[K] extends readonly any[] ? K : never }[keyof T];
 type ElementOf<T> = T extends readonly (infer U)[] ? U : never;
@@ -212,6 +238,15 @@ type ElementOf<T> = T extends readonly (infer U)[] ? U : never;
 
 const isReshaper = (value: unknown): value is Reshaper<any, any, any, any> =>
 	typeof value === "object" && value !== null && (value as any)[BRAND] === true;
+
+const isBuilt = (value: unknown): value is Built<any, any> =>
+	typeof value === "function" && (value as any)[BUILT] === true;
+
+/** The ops a built mapper came from, so {@link Reshaper.explain} still reports
+ *  the full plan through a sub-mapper that was reused rather than defined
+ *  inline. The ops are attached by reference and only turned into steps if
+ *  someone nests the mapper -- `build` is on the hot path, `explain` is not. */
+const OPS: unique symbol = Symbol.for("@ethangunter/reshape.ops");
 
 type Op =
 	| { op: "pick"; keys: string[] }
@@ -301,10 +336,32 @@ const transformedKeys = (ops: Op[]): Set<string> => {
 	return keys;
 };
 
+/**
+ * Work out what `at`/`each` was handed, and reduce it to the function to
+ * apply plus the steps to report.
+ *
+ * Three forms are accepted: a reshaper, a mapper already built from one, and
+ * a callback handed a fresh reshaper for the nested shape. The last two are
+ * both functions, which is why {@link Built} carries a brand -- checking
+ * `typeof value === "function"` alone would call a reused mapper as though it
+ * were a callback, and quietly apply nothing.
+ */
+const resolveNested = (reshaper: any): { apply: (value: any) => any; steps: Step[] } => {
+	if (isReshaper(reshaper)) return { apply: reshaper.build(), steps: reshaper.explain() };
+	if (isBuilt(reshaper)) return { apply: reshaper, steps: ((reshaper as any)[OPS] ?? []).map(toStep) };
+	if (typeof reshaper === "function") return resolveNested(reshaper(create([])));
+	return { apply: reshaper, steps: [] };
+};
+
 const create = <In, Out, Src extends Provenance, NeedsFn extends PropertyKey>(
 	ops: Op[]
 ): Reshaper<In, Out, Src, NeedsFn> => {
 	const next = (op: Op): any => create([...ops, op]);
+
+	/** Computed at most once per reshaper: `build` attaches the plan to every
+	 *  mapper it returns, and `run` builds on every call. */
+	let plan: Step[] | undefined;
+	const stepsOf = () => (plan ??= ops.map(toStep));
 
 	const self: any = {
 		[BRAND]: true,
@@ -316,35 +373,23 @@ const create = <In, Out, Src extends Provenance, NeedsFn extends PropertyKey>(
 		extend: (fields: Record<string, unknown>) => next({ op: "extend", fields }),
 		retype: (fns: Record<string, (value: any) => unknown>) => next({ op: "retype", fns }),
 
-		at: (key: string, reshaper: any) => {
-			const resolved = typeof reshaper === "function" && !isReshaper(reshaper)
-				? reshaper(create([])) : reshaper;
-			return next({
-				op: "at", key,
-				apply: isReshaper(resolved) ? resolved.build() : resolved,
-				steps: isReshaper(resolved) ? resolved.explain() : [],
-			});
-		},
+		at: (key: string, reshaper: any) => next({ op: "at", key, ...resolveNested(reshaper) }),
+		each: (key: string, reshaper: any) => next({ op: "each", key, ...resolveNested(reshaper) }),
 
-		each: (key: string, reshaper: any) => {
-			const resolved = typeof reshaper === "function" && !isReshaper(reshaper)
-				? reshaper(create([])) : reshaper;
-			return next({
-				op: "each", key,
-				apply: isReshaper(resolved) ? resolved.build() : resolved,
-				steps: isReshaper(resolved) ? resolved.explain() : [],
-			});
-		},
-
-		build: () => (source: any) => {
-			let current: Record<string, any> = { ...source };
-			for (const op of ops) current = applyOp(current, op);
-			return current;
+		build: () => {
+			const mapper = (source: any) => {
+				let current: Record<string, any> = { ...source };
+				for (const op of ops) current = applyOp(current, op);
+				return current;
+			};
+			mapper[BUILT] = true as const;
+			mapper[OPS] = ops;
+			return mapper;
 		},
 
 		run: (source: any) => self.build()(source),
 
-		explain: () => ops.map(toStep),
+		explain: () => [...stepsOf()],
 
 		invert: (recipe: Record<string, (value: any) => unknown> = {}) => (input: any) => {
 			let current: Record<string, any> = { ...input };
