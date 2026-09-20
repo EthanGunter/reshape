@@ -1,27 +1,53 @@
 {
-  "name": "reshape",
-  "version": "1.0.0",
-  "description": "Wizardry for keeping data typesafe from definition to consumption",
+  "name": "@ethangunter/reshape",
+  "version": "0.1.0",
+  "description": "Build type-safe object derivations from a single source of truth.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist"
   ],
-  "scripts": {
-    "build": "tsc"
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.18"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "check:links": "node scripts/check-links.mjs",
+    "test": "npm run build && npm run typecheck && npm run check:links && node --test test/*.test.ts",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "typescript",
+    "dto",
+    "mapper",
+    "transform",
+    "type-safe",
+    "serialization",
+    "camelcase",
+    "object"
+  ],
+  "author": "Ethan Gunter",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EthanGunter/reshape.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EthanGunter/reshape/issues"
+  },
+  "homepage": "https://github.com/EthanGunter/reshape#readme",
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
   }
 }
