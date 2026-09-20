@@ -262,6 +262,24 @@ type Op =
 	| { op: "at"; key: string; apply: (value: any) => any; steps: Step[] }
 	| { op: "each"; key: string; apply: (value: any) => any; steps: Step[] };
 
+const hasOwn = Object.prototype.hasOwnProperty;
+
+/**
+ * Carry symbol-keyed properties across an op that rebuilds the object.
+ *
+ * `omit` and `rename` name string keys, so symbols are never their target,
+ * but they are pass-through ops -- anything they did not name survives. The
+ * opening spread copies symbols, so dropping them here would be silent data
+ * loss. `Object.keys` plus this is ~3x cheaper than folding both into one
+ * `Reflect.ownKeys` call, and unlike `for...in` a polluted `Object.prototype`
+ * cannot inject keys. (`pick` is an allowlist, so it drops symbols by design.)
+ */
+const carrySymbols = (from: Record<string, any>, to: Record<string, any>) => {
+	const symbols = Object.getOwnPropertySymbols(from);
+	for (let i = 0; i < symbols.length; i++) to[symbols[i]! as any] = from[symbols[i]! as any];
+	return to;
+};
+
 /** Apply one op to a working object we already own, so the whole pipeline
  *  costs a single shallow copy rather than one per step. */
 const applyOp = (current: Record<string, any>, op: Op): Record<string, any> => {
@@ -271,18 +289,34 @@ const applyOp = (current: Record<string, any>, op: Op): Record<string, any> => {
 			for (const key of op.keys) if (key in current) next[key] = current[key];
 			return next;
 		}
-		case "omit":
-			for (const key of op.keys) delete current[key];
-			return current;
-		case "rename": {
-			// Stage renamed values first so a swap (a->b, b->a) cannot clobber.
-			const staged: Record<string, any> = {};
-			for (const from of Object.keys(op.mapping)) {
-				if (!(from in current)) continue;
-				staged[op.mapping[from]!] = current[from];
-				delete current[from];
+		// `omit` and `rename` construct rather than `delete`, for two reasons.
+		//
+		// Order: deleting a key and writing it back under a new name moves it
+		// to the end, so a rename silently reordered the object. Writing each
+		// key into a fresh object in the order it was read leaves every value
+		// where it entered.
+		//
+		// Speed: a deleted key drops the object into V8's dictionary mode, and
+		// it stays slow for every op that follows.
+		//
+		// `Reflect.ownKeys`, not `Object.keys`, so symbol-keyed properties
+		// survive. `current` is always a copy we own, so its own keys are
+		// exactly the enumerable ones the opening spread produced.
+		case "omit": {
+			const next: Record<string, any> = {};
+			for (const key of Object.keys(current)) {
+				if (!op.keys.includes(key)) next[key] = current[key];
 			}
-			return Object.assign(current, staged);
+			return carrySymbols(current, next);
+		}
+		case "rename": {
+			// A straight swap (a->b, b->a) cannot clobber: nothing is written
+			// to the object being read from.
+			const next: Record<string, any> = {};
+			for (const key of Object.keys(current)) {
+				next[hasOwn.call(op.mapping, key) ? op.mapping[key]! : key] = current[key];
+			}
+			return carrySymbols(current, next);
 		}
 		case "extend": {
 			for (const key of Object.keys(op.fields)) {

@@ -110,6 +110,43 @@ test("each reshapes every element of an array", () => {
 	assert.deepEqual(out, { posts: [{ id: "1", title: "A" }, { id: "2", title: "B" }] });
 });
 
+test("a renamed key keeps its position, rather than moving to the end", () => {
+	// Key order is not semantically meaningful in an object, but it is visible
+	// in `JSON.stringify` output and in snapshot tests, so a value should come
+	// out roughly where it went in. Renaming used to delete and re-add, which
+	// sent the renamed key to the back.
+	const source = { authId: "a9", secret: "s", name: "Ada", email: "e" };
+
+	assert.deepEqual(
+		Object.keys(reshape<typeof source>().rename({ authId: "id" }).build()(source)),
+		["id", "secret", "name", "email"],
+	);
+	assert.deepEqual(
+		Object.keys(reshape<typeof source>().omit("secret").rename({ authId: "id" }).build()(source)),
+		["id", "name", "email"],
+	);
+	// `extend` still appends: those keys were not in the input to begin with.
+	assert.deepEqual(
+		Object.keys(reshape<typeof source>().omit("secret", "email").extend({ kind: "user" }).build()(source)),
+		["authId", "name", "kind"],
+	);
+});
+
+test("omit and rename carry symbol-keyed properties through", () => {
+	// They are pass-through ops: anything they did not name survives. `pick` is
+	// an allowlist, so it drops symbols by design.
+	const tag = Symbol("tag");
+	const source = { a: 1, [tag]: "kept", b: 2 };
+
+	const omitted = reshape<{ a: number; b: number }>().omit("a").build()(source);
+	assert.equal(omitted[tag as never], "kept");
+
+	const renamed = reshape<{ a: number; b: number }>().rename({ b: "z" }).build()(source);
+	assert.equal(renamed[tag as never], "kept");
+
+	assert.equal(tag in reshape<{ a: number; b: number }>().pick("a").build()(source), false);
+});
+
 test("at and each accept a mapper that was already built, not just an unbuilt reshaper", () => {
 	// Regression: a built mapper and a callback are both functions, so `at`
 	// used to mistake the former for the latter, call it with an empty

@@ -13,7 +13,7 @@ npm install @ethangunter/reshape
 # yarn add @ethangunter/reshape
 ```
 
-> **Requirements:** TypeScript 5.0+, ESM project (`"type": "module"` or a bundler that handles ESM).
+> **Requirements:** TypeScript 5.2+, ESM project (`"type": "module"` or a bundler that handles ESM).
 
 ## Why Reshape?
 
@@ -21,7 +21,7 @@ Your database schema, API response type, or any other canonical data structure s
 
 Hand-written mappers break that promise. You write the transform, then you write an interface describing what it returns, and the two drift from the moment you save the file.
 
-**Reshape** is a fluent, chainable builder that compiles to a plain function. Its return type *is* your derived shape, so there's no second definition to keep in sync.
+**Reshape** is a fluent, chainable builder that ends in a plain function. What gets compiled is the *type*: the function's return type *is* your derived shape, so there's no second definition to keep in sync.
 
 ## For Example
 
@@ -53,7 +53,7 @@ export const toPublicUser = reshape<User>()
   // Convert values into the types consumers actually want
   .retype({ createdAt: (t) => new Date(t) })
 
-  // Compile the pipeline down to a plain function
+  // Finish the pipeline: a plain function, and a type you never wrote
   .build();
 ```
 
@@ -99,10 +99,10 @@ import { reshape } from "@ethangunter/reshape";
 | [`.retype(fns)`](#for-example) | Transform values in place, as `{ key: (value) => next }`. The new type is inferred from your function. |
 | [`.at(key, …)`](#nested-objects-and-arrays) | Reshape a nested object, with another reshaper or a callback. |
 | [`.each(key, …)`](#nested-objects-and-arrays) | Reshape every element of a nested array. |
-| [`.build()`](#for-example) | Compile to a plain function, `(source) => result`. |
+| [`.build()`](#for-example) | Finish the pipeline: a plain `(source) => result`. Build once and reuse. |
 | `.run(source)` | Apply once, for when the function isn't worth naming. |
 | [`.invert(recipe?)`](#inverting-a-transform) | Reverse the pipeline. Renames reverse for free; anything else is asked for in `recipe`. |
-| [`.explain()`](#inspecting-the-plan) | The compiled plan, as plain data. |
+| [`.explain()`](#inspecting-the-plan) | The pipeline's steps, as plain data. |
 
 ## Examples
 
@@ -200,7 +200,7 @@ To store a function *as* a value rather than calling it, return it: `{ handler: 
 
 ### Inspecting the plan
 
-`.explain()` returns the compiled pipeline as data — enough for a test to assert that a mapper drops what you think it drops:
+`.explain()` returns the pipeline's steps as data — enough for a test to assert that a mapper drops what you think it drops:
 
 ```ts
 reshape<User>().omit("passwordHash").rename({ authId: "id" }).explain();
