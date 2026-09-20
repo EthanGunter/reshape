@@ -23,7 +23,10 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "check:links": "node scripts/check-links.mjs",
     "test": "npm run build && npm run typecheck && npm run check:links && node --test test/*.test.ts",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "bench": "npm run build && node bench/runtime.bench.mjs",
+    "bench:types": "npm run build && node bench/types.bench.mjs",
+    "bench:all": "npm run bench && npm run bench:types"
   },
   "keywords": [
     "typescript",
@@ -48,6 +51,7 @@
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "mitata": "^1.0.34",
     "typescript": "^7.0.2"
   }
 }
