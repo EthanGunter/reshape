@@ -19,6 +19,11 @@ export { reshape } from "./reshape.js";
 
 /**
  * These are exported because your own declaration output may need to name
- * them. You should not have to write either by hand.
+ * them. You should not have to write any of them by hand.
+ *
+ * `Built` in particular is not optional: it is what {@link reshape}'s `build`
+ * returns, so a package that exports a mapper emits it into its own `.d.ts`.
+ * Without it reachable from the entry point, TypeScript refuses to emit those
+ * declarations at all (TS2883).
  */
-export type { Reshaper, Step } from "./reshape.js";
+export type { Built, Reshaper, Step } from "./reshape.js";
