@@ -57,7 +57,7 @@ type InverseOf<In, Out, Src extends Provenance, R> =
 	? (value: Out) => Simplify<In>
 	: (patch: Partial<Out>) => Partial<Simplify<In>>;
 
-/** One step of a compiled pipeline, as reported by {@link Reshaper.explain}. */
+/** One step of a pipeline, as reported by {@link Reshaper.explain}. */
 export type Step =
 	| { op: "pick"; keys: string[] }
 	| { op: "omit"; keys: string[] }
@@ -179,12 +179,17 @@ export type Reshaper<
 	): Reshaper<In, Simplify<DistributiveOmit<Out, K> & Record<K, OutputOf<R>[]>>, Src, NeedsFn | K>;
 
 	/**
-	 * Compile the pipeline into a plain function -- the thing this library
-	 * exists to produce.
+	 * Finish the pipeline and hand back a plain function -- one that drops
+	 * straight into `.map()`.
 	 *
-	 * Name it and its return type *is* your derived type, with nothing written
-	 * by hand: `type PublicUser = ReturnType<typeof toPublicUser>`. Being an
-	 * ordinary function, it also drops straight into `.map()`.
+	 * What gets compiled here is the *type*. Every step has been narrowing
+	 * `Out`, and this is where that collapses into a single flat object type
+	 * you never wrote by hand -- name the function and its return type *is*
+	 * your derived type: `type PublicUser = ReturnType<typeof toPublicUser>`.
+	 *
+	 * The function is not compiled. It closes over the steps and applies them
+	 * in order on every call, so build once and reuse it: rebuilding buys
+	 * nothing, and sharing is safe because pipelines are immutable.
 	 */
 	build(): Built<In, Simplify<Out>>;
 
@@ -215,8 +220,8 @@ export type Reshaper<
 	): InverseOf<In, Out, Src, R>;
 
 	/**
-	 * The compiled plan as plain data, in order. Useful for asserting in tests
-	 * that a mapper drops what you think it drops.
+	 * The pipeline's steps as plain data, in order. Useful for asserting in
+	 * tests that a mapper drops what you think it drops.
 	 */
 	explain(): Step[];
 };
